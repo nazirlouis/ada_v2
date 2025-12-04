@@ -156,26 +156,37 @@ class AudioLoop:
         else:
             kwargs = {}
         while True:
-            data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-            await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+            try:
+                data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
+                await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+            except RuntimeError as e:
+                if "cannot schedule new futures" in str(e):
+                    break
+                raise
+            except Exception as e:
+                print(f"Error in listen_audio: {e}")
+                break
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
-        while True:
-            turn = self.session.receive()
-            async for response in turn:
-                if data := response.data:
-                    self.audio_in_queue.put_nowait(data)
-                    continue
-                if text := response.text:
-                    print(text, end="")
+        try:
+            while True:
+                turn = self.session.receive()
+                async for response in turn:
+                    if data := response.data:
+                        self.audio_in_queue.put_nowait(data)
+                        continue
+                    # if text := response.text:
+                    #     print(text, end="")
 
-            # If you interrupt the model, it sends a turn_complete.
-            # For interruptions to work, we need to stop playback.
-            # So empty out the audio queue because it may have loaded
-            # much more audio than has played yet.
-            while not self.audio_in_queue.empty():
-                self.audio_in_queue.get_nowait()
+                # If you interrupt the model, it sends a turn_complete.
+                # For interruptions to work, we need to stop playback.
+                # So empty out the audio queue because it may have loaded
+                # much more audio than has played yet.
+                while not self.audio_in_queue.empty():
+                    self.audio_in_queue.get_nowait()
+        except Exception as e:
+            print(f"Error in receive_audio: {e}")
 
     async def play_audio(self):
         stream = await asyncio.to_thread(
@@ -221,6 +232,10 @@ class AudioLoop:
         except ExceptionGroup as EG:
             self.audio_stream.close()
             traceback.print_exception(EG)
+        except Exception as e:
+            print(f"Run error: {e}")
+            if hasattr(self, 'audio_stream'):
+                self.audio_stream.close()
 
 
 if __name__ == "__main__":
