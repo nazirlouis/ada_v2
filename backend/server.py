@@ -59,12 +59,18 @@ async def start_audio(sid, data=None):
         print(f"Sending CAD data to frontend: {len(data.get('vertices', []))} vertices")
         asyncio.create_task(sio.emit('cad_data', data))
 
+    # Callback to send Browser data to frontend
+    def on_web_data(data):
+        print(f"Sending Browser data to frontend: {len(data.get('log', ''))} chars logs")
+        asyncio.create_task(sio.emit('browser_frame', data))
+
     # Initialize ADA
     try:
         audio_loop = ada.AudioLoop(
             video_mode="none", 
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
+            on_web_data=on_web_data,
             input_device_index=device_index
         )
         

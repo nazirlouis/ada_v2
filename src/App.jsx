@@ -4,6 +4,7 @@ import io from 'socket.io-client';
 import Visualizer from './components/Visualizer';
 import TopAudioBar from './components/TopAudioBar';
 import CadWindow from './components/CadWindow';
+import BrowserWindow from './components/BrowserWindow';
 import ChatModule from './components/ChatModule';
 import ToolsModule from './components/ToolsModule';
 import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
@@ -20,6 +21,7 @@ function App() {
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
     const [cadData, setCadData] = useState(null);
+    const [browserData, setBrowserData] = useState({ image: null, logs: [] });
 
     // RESTORED STATE
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
@@ -36,7 +38,9 @@ function App() {
         video: { x: 40, y: 80 }, // Initial positions (approximate)
         visualizer: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
         chat: { x: window.innerWidth / 2, y: window.innerHeight - 100 },
+
         cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
+        browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 },
         tools: { x: window.innerWidth / 2, y: window.innerHeight - 30 }
     });
     const [activeDragElement, setActiveDragElement] = useState(null);
@@ -154,6 +158,19 @@ function App() {
                 setElementPositions(prev => ({
                     ...prev,
                     cad: { x: window.innerWidth / 2 + 200, y: window.innerHeight / 2 }
+                }));
+            }
+        });
+        socket.on('browser_frame', (data) => {
+            setBrowserData(prev => ({
+                image: data.image,
+                logs: [...prev.logs, data.log].filter(l => l).slice(-50) // Keep last 50 logs
+            }));
+            // Auto-show browser window if hidden
+            if (!elementPositions.browser) {
+                setElementPositions(prev => ({
+                    ...prev,
+                    browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 }
                 }));
             }
         });
@@ -476,7 +493,7 @@ function App() {
                     if (isFist) {
                         if (!activeDragElementRef.current) {
                             // Check collision with draggable elements
-                            const elements = ['video', 'visualizer', 'chat', 'cad', 'tools'];
+                            const elements = ['video', 'visualizer', 'chat', 'cad', 'browser', 'tools'];
                             for (const id of elements) {
                                 const el = document.getElementById(id);
                                 if (el) {
@@ -512,6 +529,7 @@ function App() {
                 // Draw Skeleton
                 drawSkeleton(ctx, landmarks);
             }
+
         }
 
         // 4. FPS Calculation
@@ -788,6 +806,36 @@ function App() {
                             <CadWindow data={cadData} onClose={() => setCadData(null)} />
                         </div>
                         {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
+                    </div>
+                )}
+
+
+                {/* Browser Window Overlay */}
+                {browserData.image && (
+                    <div
+                        id="browser"
+                        className={`absolute flex items-center justify-center transition-all duration-200 
+                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden
+                        ${isModularMode ? (activeDragElement === 'browser' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30 bg-cyan-500/5') + ' rounded-lg' : 'rounded-lg'}
+                    `}
+                        style={{
+                            left: elementPositions.browser?.x || window.innerWidth / 2 - 300,
+                            top: elementPositions.browser?.y || window.innerHeight / 2,
+                            transform: 'translate(-50%, -50%)',
+                            width: '600px',
+                            height: '450px',
+                            pointerEvents: 'auto'
+                        }}
+                    >
+                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
+                        <div className="relative z-20 w-full h-full">
+                            <BrowserWindow
+                                imageSrc={browserData.image}
+                                logs={browserData.logs}
+                                onClose={() => setBrowserData({ image: null, logs: [] })}
+                            />
+                        </div>
+                        {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'browser' ? 'text-green-500' : 'text-cyan-500/50'}`}>WEB BROWSER</div>}
                     </div>
                 )}
 
