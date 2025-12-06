@@ -187,8 +187,10 @@ class WebAgent:
         """
         Runs the agent with the given prompt.
         update_callback: async function(screenshot_b64: str, logs: str)
+        Returns the final response from the agent.
         """
         print(f"✨ WebAgent started. Goal: {prompt}")
+        final_response = "Agent finished without a final summary."
 
         async with async_playwright() as p:
             # Launch browser (Headless=True usually, but for dev we might keep it hidden)
@@ -259,6 +261,8 @@ class WebAgent:
                 # Process thoughts and tool calls
                 has_tool_use = False
                 thought_text = ""
+                agent_text = ""
+                
                 for part in model_content.parts:
                     if part.thought:
                         print(f"🧠 Thought: {part.text}")
@@ -266,9 +270,13 @@ class WebAgent:
                     elif part.text:
                         print(f"🗣️ Agent: {part.text}")
                         thought_text += f"[Agent] {part.text}\n"
+                        agent_text = part.text
                     if part.function_call:
                         has_tool_use = True
                 
+                if agent_text:
+                    final_response = agent_text
+
                 if update_callback and thought_text:
                      # Send thoughts without image update yet
                      pass # await update_callback(None, thought_text)
@@ -277,7 +285,7 @@ class WebAgent:
                 
                 if not function_calls:
                     if not has_tool_use:
-                        print("✅ Task finished.")
+                        print("✅ Task finished details.")
                         if update_callback: await update_callback(None, "Task Finished")
                         break
                     else:
@@ -304,6 +312,7 @@ class WebAgent:
 
             await self.browser.close()
             print("🔒 Browser closed.")
+            return final_response
 
 if __name__ == "__main__":
     agent = WebAgent()

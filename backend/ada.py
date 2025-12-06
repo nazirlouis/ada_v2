@@ -191,18 +191,18 @@ class AudioLoop:
         print(f"[ADA DEBUG] 🌐 Web Agent Task: '{prompt}'")
         
         async def update_frontend(image_b64, log_text):
-            # Send screenshot to frontend via socket (handled by server.py usually, but here we push to out_queue for generic handling or need direct socket access)
-            # Since AudioLoop sends to out_queue which goes to 'session.send', that's for the MODEL.
-            # To send to FRONTEND, we need to use the method server.py uses. 
-            # In this architecture, AudioLoop doesn't have direct access to the flask-socketio instance unless passed or via a callback.
-            # However, looking at logic, 'on_cad_data' was passed. We should probably accept 'on_browser_data' too.
-            # For now, let's assume we can trigger an event or reuse a callback.
-            
             if self.on_web_data:
                  self.on_web_data({"image": image_b64, "log": log_text})
                  
-        await self.web_agent.run_task(prompt, update_callback=update_frontend)
-        print("[ADA DEBUG] 🌐 Web Agent Task Complete")
+        # Run the web agent and wait for it to return (which now happens after browser close)
+        result = await self.web_agent.run_task(prompt, update_callback=update_frontend)
+        print(f"[ADA DEBUG] 🌐 Web Agent Task Returned: {result}")
+        
+        # Send the final result back to the main model
+        try:
+             await self.session.send(input=f"System Notification: Web Agent has finished.\nResult: {result}", end_of_turn=True)
+        except Exception as e:
+             print(f"[ADA DEBUG] ❌ Failed to send web agent result to model: {e}")
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
@@ -228,7 +228,7 @@ class AudioLoop:
                                 # Fire and forget (task will notify when done)
                                 asyncio.create_task(self.handle_cad_request(prompt))
                                 
-                                result_text = "CAD calibration started. The model is being generated in the background."
+                                result_text = "CAD calibration started. The model is being generated in the background. Do not reply to this message."
                                 function_response = types.FunctionResponse(
                                     id=fc.id,
                                     name=fc.name,
@@ -244,7 +244,7 @@ class AudioLoop:
                                 print(f"[ADA DEBUG] 🛠️ Tool Call: 'run_web_agent' with prompt='{prompt}'")
                                 asyncio.create_task(self.handle_web_agent_request(prompt))
                                 
-                                result_text = "Web Navigation started. Browser window opened."
+                                result_text = "Web Navigation started. Do not reply to this message."
                                 function_response = types.FunctionResponse(
                                     id=fc.id,
                                     name=fc.name,
