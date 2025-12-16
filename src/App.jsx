@@ -24,7 +24,19 @@ function App() {
     const [status, setStatus] = useState('Disconnected');
     // Auth State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isLockScreenVisible, setIsLockScreenVisible] = useState(true);
+
+    // Initialize from LocalStorage to prevent flash of UI
+    const [isLockScreenVisible, setIsLockScreenVisible] = useState(() => {
+        const saved = localStorage.getItem('face_auth_enabled');
+        // If saved is 'true', we MUST start locked.
+        // If 'false' or null (default off), we start unlocked.
+        return saved === 'true';
+    });
+
+    // Local state for tracking settings, also init from local storage
+    const [faceAuthEnabled, setFaceAuthEnabled] = useState(() => {
+        return localStorage.getItem('face_auth_enabled') === 'true';
+    });
 
 
     const [isConnected, setIsConnected] = useState(true); // Power state DEFAULT ON
@@ -230,6 +242,35 @@ function App() {
         socket.on('status', (data) => addMessage('System', data.msg));
         socket.on('audio_data', (data) => {
             setAiAudioData(data.data);
+        });
+        socket.on('auth_status', (data) => {
+            console.log("Auth Status:", data);
+            setIsAuthenticated(data.authenticated);
+            if (data.authenticated) {
+                // If authenticated, hide lock screen with animation (handled by component if visible)
+                // But simpler: just hide it
+                // Actually, wait for animation if it WAS visible.
+                // For now, let's just assume if authenticated -> hide
+                // But we want the component to invoke onAnimationComplete.
+                // If we are starting up (and face auth disabled), we want it FALSE immediately.
+                if (!isLockScreenVisible) {
+                    // Do nothing, already hidden
+                }
+            } else {
+                // If NOT authenticated, show lock screen
+                setIsLockScreenVisible(true);
+            }
+        });
+
+        socket.on('settings', (settings) => {
+            if (settings && typeof settings.face_auth_enabled !== 'undefined') {
+                setFaceAuthEnabled(settings.face_auth_enabled);
+                localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
+
+                // If specific logic needed for immediate lock/unlock trigger
+                // But handleAuthStatus usually covers the 'Lock' part if auth is invalid.
+                // This syncs the storage.
+            }
         });
         socket.on('cad_data', (data) => {
             console.log("Received CAD Data:", data);
@@ -993,6 +1034,13 @@ function App() {
             {/* --- PREMIUM UI LAYER --- */}
 
             {/* --- PREMIUM UI LAYER --- */}
+
+            {/* --- PREMIUM UI LAYER --- */}
+
+            {/* Logic: Show AuthLock if we are NOT authenticated AND (Lock Screen is visible OR Auth is Enabled) 
+                Actually, simpler: isLockScreenVisible is the source of truth for visibility.
+                We set isLockScreenVisible = true via socket if auth is required.
+             */}
 
             {isLockScreenVisible && (
                 <AuthLock

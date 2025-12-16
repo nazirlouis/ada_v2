@@ -21,35 +21,49 @@ const SettingsWindow = ({
     onClose
 }) => {
     const [permissions, setPermissions] = useState({});
+    const [faceAuthEnabled, setFaceAuthEnabled] = useState(false);
 
     useEffect(() => {
         // Request initial permissions
-        socket.emit('get_tool_permissions');
+        socket.emit('get_settings');
 
         // Listen for updates
-        const handlePermissions = (perms) => {
-            console.log("Received permissions:", perms);
-            setPermissions(perms);
+        const handleSettings = (settings) => {
+            console.log("Received settings:", settings);
+            if (settings) {
+                if (settings.tool_permissions) setPermissions(settings.tool_permissions);
+                if (typeof settings.face_auth_enabled !== 'undefined') {
+                    setFaceAuthEnabled(settings.face_auth_enabled);
+                    localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
+                }
+            }
         };
 
-        socket.on('tool_permissions', handlePermissions);
+        socket.on('settings', handleSettings);
+        // Also listen for legacy tool_permissions if needed, but 'settings' covers it
+        // socket.on('tool_permissions', handlePermissions); 
 
         return () => {
-            socket.off('tool_permissions', handlePermissions);
+            socket.off('settings', handleSettings);
         };
     }, [socket]);
 
     const togglePermission = (toolId) => {
-        const newValue = !permissions[toolId]; // Default is usually undefined -> false (which means NO CONFIRMATION? No, plan said Default TRUE)
-        // Let's assume backend sends full state. If undefined, we treat as true (safe default).
-
-        // Wait, "Confirmation Required" = TRUE. Toggle means !current.
-        // If current is missing, default is True.
         const currentVal = permissions[toolId] !== false; // Default True
         const nextVal = !currentVal;
 
-        setPermissions(prev => ({ ...prev, [toolId]: nextVal }));
-        socket.emit('update_tool_permissions', { [toolId]: nextVal });
+        // Update local mostly for responsiveness, but socket roundtrip handles truth
+        // setPermissions(prev => ({ ...prev, [toolId]: nextVal }));
+
+        // Send update
+        socket.emit('update_settings', { tool_permissions: { [toolId]: nextVal } });
+    };
+
+    const toggleFaceAuth = () => {
+        const newVal = !faceAuthEnabled;
+        setFaceAuthEnabled(newVal); // Optimistic Update
+        localStorage.setItem('face_auth_enabled', newVal);
+        socket.emit('update_settings', { face_auth_enabled: newVal });
     };
 
     return (
@@ -59,6 +73,22 @@ const SettingsWindow = ({
                 <button onClick={onClose} className="text-cyan-600 hover:text-cyan-400">
                     <X size={16} />
                 </button>
+            </div>
+
+            {/* Authentication Section */}
+            <div className="mb-6">
+                <h3 className="text-cyan-400 font-bold mb-3 text-xs uppercase tracking-wider opacity-80">Security</h3>
+                <div className="flex items-center justify-between text-xs bg-gray-900/50 p-2 rounded border border-cyan-900/30">
+                    <span className="text-cyan-100/80">Face Authentication</span>
+                    <button
+                        onClick={toggleFaceAuth}
+                        className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${faceAuthEnabled ? 'bg-cyan-500/80' : 'bg-gray-700'}`}
+                    >
+                        <div
+                            className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${faceAuthEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                        />
+                    </button>
+                </div>
             </div>
 
             {/* Audio Section */}

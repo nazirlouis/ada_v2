@@ -74,6 +74,10 @@ class FaceAuthenticator:
         await asyncio.to_thread(self._run_cv_loop, loop)
 
         print("[AUTH] Authentication loop finished.")
+    
+    def stop(self):
+        print("[AUTH] Stopping authentication loop...")
+        self.running = False
 
     def _run_cv_loop(self, loop):
         # Helper to try opening and reading a frame

@@ -1,0 +1,11 @@
+{
+    "face_auth_enabled": false,
+    "tool_permissions": {
+        "generate_cad": true,
+        "run_web_agent": true,
+        "create_directory": false,
+        "write_file": false,
+        "read_directory": false,
+        "read_file": false
+    }
+}

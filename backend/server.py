@@ -29,14 +29,53 @@ audio_loop = None
 loop_task = None
 authenticator = None
 kasa_agent = KasaAgent()
-tool_permissions = {
-    "generate_cad": True,
-    "run_web_agent": True,
-    "create_directory": True,
-    "write_file": True,
-    "read_directory": True,
-    "read_file": True
+SETTINGS_FILE = "settings.json"
+
+DEFAULT_SETTINGS = {
+    "face_auth_enabled": False, # Default OFF as requested
+    "tool_permissions": {
+        "generate_cad": True,
+        "run_web_agent": True,
+        "create_directory": True,
+        "write_file": True,
+        "read_directory": True,
+        "read_file": True
+    }
 }
+
+SETTINGS = DEFAULT_SETTINGS.copy()
+
+def load_settings():
+    global SETTINGS
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                loaded = json.load(f)
+                # Merge with defaults to ensure new keys exist
+                # Deep merge for tool_permissions would be better but shallow merge of top keys + tool_permissions check is okay for now
+                for k, v in loaded.items():
+                    if k == "tool_permissions" and isinstance(v, dict):
+                         SETTINGS["tool_permissions"].update(v)
+                    else:
+                        SETTINGS[k] = v
+            print(f"Loaded settings: {SETTINGS}")
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+
+def save_settings():
+    try:
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(SETTINGS, f, indent=4)
+        print("Settings saved.")
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+
+# Load on startup
+load_settings()
+
+authenticator = None
+kasa_agent = KasaAgent()
+# tool_permissions is now SETTINGS["tool_permissions"]
 
 @app.get("/status")
 async def status():
@@ -67,12 +106,21 @@ async def connect(sid, environ):
         )
     
     # Check if already authenticated or needs to start
+    # Check if already authenticated or needs to start
     if authenticator.authenticated:
         await sio.emit('auth_status', {'authenticated': True})
     else:
-        await sio.emit('auth_status', {'authenticated': False})
-        # Start the auth loop in background
-        asyncio.create_task(authenticator.start_authentication_loop())
+        # Check Settings for Auth
+        if SETTINGS.get("face_auth_enabled", False):
+            await sio.emit('auth_status', {'authenticated': False})
+            # Start the auth loop in background
+            asyncio.create_task(authenticator.start_authentication_loop())
+        else:
+            # Bypass Auth
+            print("Face Auth Disabled. Auto-authenticating.")
+            # We don't change authenticator state to true to avoid confusion if re-enabled? 
+            # Or we should just tell client it's auth'd.
+            await sio.emit('auth_status', {'authenticated': True})
 
 @sio.event
 async def disconnect(sid):
@@ -83,10 +131,13 @@ async def start_audio(sid, data=None):
     global audio_loop, loop_task
     
     # Optional: Block if not authenticated
-    if authenticator and not authenticator.authenticated:
-        print("Blocked start_audio: Not authenticated.")
-        await sio.emit('error', {'msg': 'Authentication Required'})
-        return
+    # Optional: Block if not authenticated
+    # Only block if auth is ENABLED and not authenticated
+    if SETTINGS.get("face_auth_enabled", False):
+        if authenticator and not authenticator.authenticated:
+            print("Blocked start_audio: Not authenticated.")
+            await sio.emit('error', {'msg': 'Authentication Required'})
+            return
 
     print("Starting Audio Loop...")
     
@@ -147,8 +198,9 @@ async def start_audio(sid, data=None):
 
             input_device_index=device_index
         )
+
         # Apply current permissions
-        audio_loop.update_permissions(tool_permissions)
+        audio_loop.update_permissions(SETTINGS["tool_permissions"])
         
         # Check initial mute state
         if data and data.get('muted', False):
@@ -392,17 +444,49 @@ async def control_kasa(sid, data):
          await sio.emit('error', {'msg': f"Kasa Control Error: {str(e)}"})
 
 @sio.event
+async def get_settings(sid):
+    await sio.emit('settings', SETTINGS)
+
+@sio.event
+async def update_settings(sid, data):
+    # Generic update
+    print(f"Updating settings: {data}")
+    
+    # Handle specific keys if needed
+    if "tool_permissions" in data:
+        SETTINGS["tool_permissions"].update(data["tool_permissions"])
+        if audio_loop:
+            audio_loop.update_permissions(SETTINGS["tool_permissions"])
+            
+    if "face_auth_enabled" in data:
+        SETTINGS["face_auth_enabled"] = data["face_auth_enabled"]
+        # If turned OFF, maybe emit auth status true?
+        if not data["face_auth_enabled"]:
+             await sio.emit('auth_status', {'authenticated': True})
+             # Stop auth loop if running?
+             if authenticator:
+                 authenticator.stop() 
+
+    save_settings()
+    # Broadcast new full settings
+    await sio.emit('settings', SETTINGS)
+
+
+# Deprecated/Mapped for compatibility if frontend still uses specific events
+@sio.event
 async def get_tool_permissions(sid):
-    await sio.emit('tool_permissions', tool_permissions)
+    await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
 
 @sio.event
 async def update_tool_permissions(sid, data):
-    print(f"Updating permissions: {data}")
-    tool_permissions.update(data)
+    print(f"Updating permissions (legacy event): {data}")
+    SETTINGS["tool_permissions"].update(data)
+    save_settings()
+    
     if audio_loop:
-        audio_loop.update_permissions(tool_permissions)
+        audio_loop.update_permissions(SETTINGS["tool_permissions"])
     # Broadcast update to all
-    await sio.emit('tool_permissions', tool_permissions)
+    await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
 
 if __name__ == "__main__":
     uvicorn.run(app_socketio, host="127.0.0.1", port=8000)
