@@ -31,9 +31,9 @@ ADA's "Minority Report" interface uses your webcam to detect hand gestures:
 
 | Gesture | Action |
 |---------|--------|
-| 🤏 **Pinch** (thumb + index) | "Select" and grab a UI window to drag it |
+| 🤏 **Pinch** | Confirm action / click |
 | ✋ **Open Palm** | Release the window |
-| ✊ **Close Fist** | Confirm action / click |
+| ✊ **Close Fist** | "Select" and grab a UI window to drag it |
 
 > **Tip**: Enable the video feed window to see the hand tracking overlay.
 
