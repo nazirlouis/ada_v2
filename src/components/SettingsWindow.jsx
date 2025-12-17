@@ -13,6 +13,9 @@ const TOOLS = [
     { id: 'list_projects', label: 'List Projects' },
     { id: 'list_smart_devices', label: 'List Devices' },
     { id: 'control_light', label: 'Control Light' },
+    { id: 'discover_printers', label: 'Discover Printers' },
+    { id: 'print_stl', label: 'Print 3D Model' },
+    { id: 'iterate_cad', label: 'Iterate CAD' },
 ];
 
 const SettingsWindow = ({

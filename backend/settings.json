@@ -11,6 +11,10 @@
         "list_projects": false,
         "create_directory": false,
         "list_smart_devices": false,
-        "control_light": false
+        "control_light": false,
+        "discover_printers": false,
+        "print_stl": true,
+        "get_print_status": false,
+        "iterate_cad": false
     }
 }

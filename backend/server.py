@@ -462,9 +462,6 @@ async def iterate_cad(sid, data):
         await sio.emit('cad_status', {'status': 'generating'})
         
         # Call the agent
-        # Note: We need access to the cad_agent instance. 
-        # Since it's inside AudioLoop, we should probably access it there or make it global.
-        # Ideally, AudioLoop exposes it. Let's assume it does for now via `audio_loop.cad_agent`.
         result = await audio_loop.cad_agent.iterate_prototype(prompt)
         
         if result:
@@ -478,6 +475,50 @@ async def iterate_cad(sid, data):
     except Exception as e:
         print(f"Error iterating CAD: {e}")
         await sio.emit('error', {'msg': f"Iteration Error: {str(e)}"})
+
+@sio.event
+async def discover_printers(sid):
+    print("Received discover_printers request")
+    if not audio_loop or not audio_loop.printer_agent:
+        await sio.emit('error', {'msg': "Printer Agent not available"})
+        return
+        
+    try:
+        printers = await audio_loop.printer_agent.discover_printers()
+        await sio.emit('printer_list', printers)
+        await sio.emit('status', {'msg': f"Found {len(printers)} printers"})
+    except Exception as e:
+        print(f"Error discovering printers: {e}")
+        await sio.emit('error', {'msg': f"Printer Discovery Failed: {str(e)}"})
+
+@sio.event
+async def print_stl(sid, data):
+    print(f"Received print_stl request: {data}")
+    # data: { stl_path: "path/to.stl" | "current", printer: "name_or_ip", profile: "optional" }
+    
+    if not audio_loop or not audio_loop.printer_agent:
+        await sio.emit('error', {'msg': "Printer Agent not available"})
+        return
+        
+    try:
+        stl_path = data.get('stl_path', 'current')
+        printer_name = data.get('printer')
+        profile = data.get('profile')
+        
+        if not printer_name:
+             await sio.emit('error', {'msg': "No printer specified"})
+             return
+             
+        await sio.emit('status', {'msg': f"Preparing print for {printer_name}..."})
+        
+        result = await audio_loop.printer_agent.print_stl(stl_path, printer_name, profile)
+        
+        await sio.emit('print_result', result)
+        await sio.emit('status', {'msg': f"Print Job: {result.get('status', 'unknown')}"})
+        
+    except Exception as e:
+        print(f"Error printing STL: {e}")
+        await sio.emit('error', {'msg': f"Print Failed: {str(e)}"})
 
 @sio.event
 async def control_kasa(sid, data):

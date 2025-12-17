@@ -129,7 +129,55 @@ control_light_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool] + tools_list[0]['function_declarations'][1:]}]
+discover_printers_tool = {
+    "name": "discover_printers",
+    "description": "Discovers 3D printers available on the local network.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {},
+    }
+}
+
+print_stl_tool = {
+    "name": "print_stl",
+    "description": "Prints an STL file to a 3D printer. Handles slicing the STL to G-code and uploading to the printer.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "stl_path": {"type": "STRING", "description": "Path to STL file, or 'current' for the most recent CAD model."},
+            "printer": {"type": "STRING", "description": "Printer name or IP address."},
+            "profile": {"type": "STRING", "description": "Optional slicer profile name."}
+        },
+        "required": ["stl_path", "printer"]
+    }
+}
+
+get_print_status_tool = {
+    "name": "get_print_status",
+    "description": "Gets the current status of a 3D printer including progress, time remaining, and temperatures.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "printer": {"type": "STRING", "description": "Printer name or IP address."}
+        },
+        "required": ["printer"]
+    }
+}
+
+iterate_cad_tool = {
+    "name": "iterate_cad",
+    "description": "Modifies or iterates on the current CAD design based on user feedback. Use this when the user asks to adjust, change, modify, or iterate on the existing 3D model (e.g., 'make it taller', 'add a handle', 'reduce the thickness').",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "prompt": {"type": "STRING", "description": "The changes or modifications to apply to the current design."}
+        },
+        "required": ["prompt"]
+    },
+    "behavior": "NON_BLOCKING"
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool] + tools_list[0]['function_declarations'][1:]}]
 
 # --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
@@ -157,6 +205,7 @@ pya = pyaudio.PyAudio()
 from cad_agent import CadAgent
 from web_agent import WebAgent
 from kasa_agent import KasaAgent
+from printer_agent import PrinterAgent
 
 class AudioLoop:
     def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, input_device_index=None, output_device_index=None):
@@ -201,6 +250,7 @@ class AudioLoop:
         self.cad_agent = CadAgent(on_thought=handle_cad_thought, on_status=handle_cad_status)
         self.web_agent = WebAgent()
         self.kasa_agent = KasaAgent()
+        self.printer_agent = PrinterAgent()
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -561,7 +611,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -772,6 +822,87 @@ class AudioLoop:
 
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_msg}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "discover_printers":
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'discover_printers'")
+                                    printers = await self.printer_agent.discover_printers()
+                                    # Format for model
+                                    if printers:
+                                        printer_list = []
+                                        for p in printers:
+                                            printer_list.append(f"{p['name']} ({p['host']}:{p['port']}, type: {p['printer_type']})")
+                                        result_str = "Found Printers:\n" + "\n".join(printer_list)
+                                    else:
+                                        result_str = "No printers found on network. Ensure printers are on and running OctoPrint/Moonraker."
+                                    
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "print_stl":
+                                    stl_path = fc.args["stl_path"]
+                                    printer = fc.args["printer"]
+                                    profile = fc.args.get("profile")
+                                    
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'print_stl' STL='{stl_path}' Printer='{printer}'")
+                                    
+                                    # Resolve 'current' to project STL
+                                    if stl_path.lower() == "current":
+                                        project_path = self.project_manager.get_current_project_path()
+                                        stl_path = str(project_path / "output.stl")
+                                    
+                                    result = await self.printer_agent.print_stl(stl_path, printer, profile)
+                                    result_str = result.get("message", "Unknown result")
+                                    
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "get_print_status":
+                                    printer = fc.args["printer"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'get_print_status' Printer='{printer}'")
+                                    
+                                    status = await self.printer_agent.get_print_status(printer)
+                                    if status:
+                                        result_str = f"Printer: {status.printer}\n"
+                                        result_str += f"State: {status.state}\n"
+                                        result_str += f"Progress: {status.progress_percent:.1f}%\n"
+                                        if status.time_remaining:
+                                            result_str += f"Time Remaining: {status.time_remaining}\n"
+                                        if status.time_elapsed:
+                                            result_str += f"Time Elapsed: {status.time_elapsed}\n"
+                                        if status.filename:
+                                            result_str += f"File: {status.filename}\n"
+                                        if status.temperatures:
+                                            temps = status.temperatures
+                                            if "hotend" in temps:
+                                                result_str += f"Hotend: {temps['hotend']['current']:.0f}°C / {temps['hotend']['target']:.0f}°C\n"
+                                            if "bed" in temps:
+                                                result_str += f"Bed: {temps['bed']['current']:.0f}°C / {temps['bed']['target']:.0f}°C"
+                                    else:
+                                        result_str = f"Could not get status for printer '{printer}'. Ensure it is discovered first."
+                                    
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "iterate_cad":
+                                    prompt = fc.args["prompt"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'iterate_cad' Prompt='{prompt}'")
+                                    
+                                    # Non-blocking call to CadAgent
+                                    # We wait for the coroutine to start, but the actual iteration is async stream
+                                    await self.cad_agent.iterate_prototype(prompt)
+                                    
+                                    result_str = f"Started iterating on design with prompt: {prompt}"
+                                    
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
                                     )
                                     function_responses.append(function_response)
                         if function_responses:

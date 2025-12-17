@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { Mic, MicOff, Settings, Power, Video, VideoOff, Layout, Hand, Lightbulb } from 'lucide-react';
+import { Mic, MicOff, Settings, Power, Video, VideoOff, Layout, Hand, Lightbulb, Printer } from 'lucide-react';
 
 
 const ToolsModule = ({
@@ -19,6 +19,8 @@ const ToolsModule = ({
     onToggleHand,
     onToggleKasa,
     showKasaWindow,
+    onTogglePrinter,
+    showPrinterWindow,
     activeDragElement,
 
     position,
@@ -120,6 +122,16 @@ const ToolsModule = ({
                     <Lightbulb size={24} />
                 </button>
 
+                {/* 3D Printer Control */}
+                <button
+                    onClick={onTogglePrinter}
+                    className={`p-3 rounded-full border-2 transition-all duration-300 ${showPrinterWindow
+                        ? 'border-green-400 bg-green-400/10 text-green-400 hover:bg-green-400/20'
+                        : 'border-cyan-900 text-cyan-700 hover:border-green-500 hover:text-green-500'
+                        }`}
+                >
+                    <Printer size={24} />
+                </button>
             </div>
             {isModularMode && <div className={`absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold tracking-widest ${activeDragElement === 'tools' ? 'text-green-500' : 'text-yellow-500/50'}`}>TOOLS</div>}
         </div>

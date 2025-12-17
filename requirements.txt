@@ -13,6 +13,9 @@ mss
 playwright
 # Smart Home
 python-kasa
+# 3D Printing
+zeroconf>=0.131.0
+aiohttp>=3.9.0
 # Utilities
 python-dotenv
 # Face & Hand tracking

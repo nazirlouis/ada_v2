@@ -13,6 +13,7 @@ import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import ConfirmationPopup from './components/ConfirmationPopup';
 import AuthLock from './components/AuthLock';
 import KasaWindow from './components/KasaWindow';
+import PrinterWindow from './components/PrinterWindow';
 import SettingsWindow from './components/SettingsWindow';
 
 
@@ -56,6 +57,7 @@ function App() {
     const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
     const [kasaDevices, setKasaDevices] = useState([]);
     const [showKasaWindow, setShowKasaWindow] = useState(false);
+    const [showPrinterWindow, setShowPrinterWindow] = useState(false);
 
 
     // RESTORED STATE
@@ -76,8 +78,10 @@ function App() {
         chat: { x: window.innerWidth / 2, y: window.innerHeight - 100 },
 
         cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
+        cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
         browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 },
         kasa: { x: window.innerWidth / 2 + 350, y: window.innerHeight / 2 - 100 },
+        printer: { x: window.innerWidth / 2 - 350, y: window.innerHeight / 2 - 100 },
         tools: { x: window.innerWidth / 2, y: window.innerHeight - 100 } // Fixed bottom OFFSET
     });
 
@@ -88,7 +92,9 @@ function App() {
         cad: { w: 500, h: 500 },
         browser: { w: 600, h: 450 },
         video: { w: 320, h: 180 },
-        kasa: { w: 300, h: 400 } // Approx
+        video: { w: 320, h: 180 },
+        kasa: { w: 300, h: 400 }, // Approx
+        printer: { w: 400, h: 400 } // Approx
     });
     const [activeDragElement, setActiveDragElement] = useState(null);
 
@@ -386,6 +392,15 @@ function App() {
         socket.on('tool_confirmation_request', (data) => {
             console.log("Received Confirmation Request:", data);
             setConfirmationRequest(data);
+        });
+
+        // Handle Print Window Request (from CadWindow)
+        socket.on('request_print_window', () => {
+            setShowPrinterWindow(true);
+            setElementPositions(prev => ({
+                ...prev,
+                printer: { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+            }));
         });
 
         // Kasa Devices
@@ -1088,6 +1103,11 @@ function App() {
         setShowKasaWindow(!showKasaWindow);
     };
 
+    const togglePrinterWindow = () => {
+        setShowPrinterWindow(!showPrinterWindow);
+    };
+
+
 
     return (
         <div className="h-screen w-screen bg-black text-cyan-100 font-mono overflow-hidden flex flex-col relative selection:bg-cyan-900 selection:text-white">
@@ -1344,6 +1364,8 @@ function App() {
                         onToggleLayout={() => setIsModularMode(!isModularMode)}
                         onToggleHand={() => setIsHandTrackingEnabled(!isHandTrackingEnabled)}
                         onToggleKasa={toggleKasaWindow}
+                        onTogglePrinter={togglePrinterWindow}
+                        showPrinterWindow={showPrinterWindow}
                         activeDragElement={activeDragElement}
                         position={elementPositions.tools}
                         onMouseDown={(e) => handleMouseDown(e, 'tools')}
@@ -1360,6 +1382,18 @@ function App() {
                         devices={kasaDevices}
                         onClose={() => setShowKasaWindow(false)}
                         onMouseDown={(e) => handleMouseDown(e, 'kasa')}
+                    />
+                )}
+
+                {/* Printer Window */}
+                {showPrinterWindow && (
+                    <PrinterWindow
+                        socket={socket}
+                        onClose={() => setShowPrinterWindow(false)}
+                        position={elementPositions.printer}
+                        onMouseDown={(e) => handleMouseDown(e, 'printer')}
+                        activeDragElement={activeDragElement}
+                        setActiveDragElement={setActiveDragElement}
                     />
                 )}
 

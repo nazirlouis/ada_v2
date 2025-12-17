@@ -3,6 +3,7 @@ import { Canvas, useLoader, useFrame } from '@react-three/fiber';
 import { OrbitControls, Center, Stage } from '@react-three/drei';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import { Printer } from 'lucide-react';
 
 const GeometryModel = ({ geometry }) => {
     return (
@@ -94,13 +95,25 @@ const CadWindow = ({ data, thoughts, retryInfo = {}, onClose, socket }) => {
                 <button onClick={onClose} className="bg-red-500/20 hover:bg-red-500/50 text-red-500 p-1 rounded">X</button>
             </div>
 
-            {/* Iterate Button (Top Left) */}
-            <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* Top Toolbar */}
+            <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
                 <button
                     onClick={() => setIsIterating(true)}
                     className="bg-cyan-500/20 hover:bg-cyan-500/50 text-cyan-400 text-xs px-2 py-1 rounded border border-cyan-500/30 backdrop-blur-sm"
                 >
                     ITERATE
+                </button>
+                <button
+                    onClick={() => {
+                        // Trigger print from current available data if possible, or just open printer window
+                        // Since slicing requires backend file, we ideally emit an event or show UI
+                        // For now we'll rely on voice or tool window, but user requested button here.
+                        // Best approach: Open Printer Window + Auto-populate / Trigger
+                        if (socket) socket.emit('request_print_window');
+                    }}
+                    className="bg-green-500/20 hover:bg-green-500/50 text-green-400 text-xs px-2 py-1 rounded border border-green-500/30 backdrop-blur-sm flex items-center gap-1"
+                >
+                    <Printer size={12} /> PRINT
                 </button>
             </div>
 
