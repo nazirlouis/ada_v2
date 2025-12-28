@@ -272,7 +272,7 @@ class AudioLoop:
         self.audio_processor = EnhancedAudioProcessor(
             sample_rate=SEND_SAMPLE_RATE,
             enable_noise_gate=enable_noise_gate,
-            vad_aggressiveness=2  # Medium aggressiveness
+            vad_aggressiveness=1  # Low aggressiveness to reduce false positives from echo
         )
         print(f"[ADA] Enhanced audio processor initialized (noise_gate={enable_noise_gate})")
 
@@ -325,6 +325,9 @@ class AudioLoop:
         # VAD State
         self._is_speaking = False
         self._silence_start_time = None
+        # AI speaking state (to prevent self-interruption)
+        self._ai_is_speaking = False
+        self._last_ai_audio_time = 0
         
         # Initialize ProjectManager
         from project_manager import ProjectManager
@@ -771,8 +774,10 @@ class AudioLoop:
                                     
                                     # Only send if there's new text
                                     if delta:
-                                        # User is speaking, so interrupt model playback!
-                                        self.clear_audio_queue()
+                                        # User is speaking, interrupt model playback ONLY if AI is not currently speaking
+                                        # This prevents echo/feedback from interrupting AI's own speech
+                                        if not self._ai_is_speaking:
+                                            self.clear_audio_queue()
 
                                         # Send to frontend (Streaming)
                                         if self.on_transcription:
@@ -1242,9 +1247,19 @@ class AudioLoop:
         )
         while True:
             bytestream = await self.audio_in_queue.get()
+
+            # Mark that AI is speaking
+            self._ai_is_speaking = True
+            self._last_ai_audio_time = time.time()
+
             if self.on_audio_data:
                 self.on_audio_data(bytestream)
             await asyncio.to_thread(stream.write, bytestream)
+
+            # Check if AI stopped speaking (no audio for 0.3 seconds)
+            await asyncio.sleep(0.01)
+            if time.time() - self._last_ai_audio_time > 0.3:
+                self._ai_is_speaking = False
 
     async def get_frames(self):
         cap = await asyncio.to_thread(cv2.VideoCapture, 0, cv2.CAP_AVFOUNDATION)

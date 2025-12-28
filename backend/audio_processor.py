@@ -37,7 +37,7 @@ class AudioMetrics:
 class NoiseGate:
     """Simple noise gate to reduce background noise"""
 
-    def __init__(self, threshold_db: float = -40.0, attack_ms: float = 5.0, release_ms: float = 100.0, sample_rate: int = 16000):
+    def __init__(self, threshold_db: float = -45.0, attack_ms: float = 5.0, release_ms: float = 150.0, sample_rate: int = 16000):
         self.threshold = 10 ** (threshold_db / 20.0)  # Convert dB to linear
         self.attack_samples = int(sample_rate * attack_ms / 1000.0)
         self.release_samples = int(sample_rate * release_ms / 1000.0)
