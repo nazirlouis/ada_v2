@@ -37,7 +37,7 @@ FORMAT = pyaudio.paInt16
 CHANNELS = 1
 SEND_SAMPLE_RATE = 16000
 RECEIVE_SAMPLE_RATE = 24000
-CHUNK_SIZE = 1024
+CHUNK_SIZE = 2048  # Increased from 1024 for smoother playback
 
 MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 DEFAULT_MODE = "camera"
@@ -1313,7 +1313,7 @@ class AudioLoop:
                 ):
                     self.session = session
 
-                    self.audio_in_queue = asyncio.Queue()
+                    self.audio_in_queue = asyncio.Queue(maxsize=100)  # Increased buffer for smoother playback
                     self.out_queue = asyncio.Queue(maxsize=10)
 
                     tg.create_task(self.send_realtime())
