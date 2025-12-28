@@ -73,7 +73,7 @@ DEFAULT_SETTINGS = {
     "kasa_devices": [], # List of {ip, alias, model}
     "camera_flipped": False, # Invert cursor horizontal direction
     # Enhanced Audio Settings
-    "voice_name": "Kore",  # Selected Gemini voice
+    "voice_name": "Fenrir",  # Selected Gemini voice (male, deep)
     "enable_noise_gate": False,  # Noise suppression (disabled by default - can cause audio issues)
     "enable_wake_word": False,  # Wake word detection (requires API key)
     "wake_word_key": None,  # Porcupine API key
@@ -132,12 +132,12 @@ async def startup_event():
 
 @app.get("/status")
 async def status():
-    return {"status": "running", "service": "A.D.A Backend"}
+    return {"status": "running", "service": "JARVIS Backend"}
 
 @sio.event
 async def connect(sid, environ):
     print(f"Client connected: {sid}")
-    await sio.emit('status', {'msg': 'Connected to A.D.A Backend'}, room=sid)
+    await sio.emit('status', {'msg': 'Connected to JARVIS Backend'}, room=sid)
 
     global authenticator
     
@@ -209,7 +209,7 @@ async def start_audio(sid, data=None):
              loop_task = None
         else:
              print("Audio loop already running. Re-connecting client to session.")
-             await sio.emit('status', {'msg': 'A.D.A Already Running'})
+             await sio.emit('status', {'msg': 'JARVIS Already Running'})
              return
 
 
@@ -330,9 +330,9 @@ async def start_audio(sid, data=None):
                 # You could emit 'error' here if you have context
         
         loop_task.add_done_callback(handle_loop_exit)
-        
-        print("Emitting 'A.D.A Started'")
-        await sio.emit('status', {'msg': 'A.D.A Started'})
+
+        print("Emitting 'JARVIS Started'")
+        await sio.emit('status', {'msg': 'JARVIS Started'})
 
         # Load saved printers
         saved_printers = SETTINGS.get("printers", [])
@@ -394,10 +394,10 @@ async def monitor_printers_loop():
 async def stop_audio(sid):
     global audio_loop
     if audio_loop:
-        audio_loop.stop() 
+        audio_loop.stop()
         print("Stopping Audio Loop")
         audio_loop = None
-        await sio.emit('status', {'msg': 'A.D.A Stopped'})
+        await sio.emit('status', {'msg': 'JARVIS Stopped'})
 
 @sio.event
 async def pause_audio(sid):
@@ -735,7 +735,7 @@ async def discover_printers(sid):
             return
         else:
             await sio.emit('printer_list', [])
-            await sio.emit('status', {'msg': "Connect to A.D.A to enable printer discovery"})
+            await sio.emit('status', {'msg': "Connect to JARVIS to enable printer discovery"})
             return
         
     try:

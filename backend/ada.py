@@ -201,17 +201,17 @@ iterate_cad_tool = {
 tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool] + tools_list[0]['function_declarations'][1:]}]
 
 # --- CONFIG BUILDER FUNCTION ---
-def build_config(voice_name: str = "Kore"):
+def build_config(voice_name: str = "Fenrir"):
     """Build a LiveConnectConfig with specified voice"""
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         output_audio_transcription={},
         input_audio_transcription={},
-        system_instruction="Your name is Ada, which stands for Advanced Design Assistant. "
-            "You have a witty and charming personality. "
+        system_instruction="Your name is Jarvis, which stands for Just A Rather Very Intelligent System. "
+            "You have a sophisticated and professional personality with a touch of dry wit. "
             "Your creator is Naz, and you address him as 'Sir'. "
             "When answering, respond using complete and concise sentences to keep a quick pacing and keep the conversation flowing. "
-            "You have a fun personality.",
+            "You have a distinguished and helpful demeanor, similar to a trusted butler or advisor.",
         tools=tools,
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
@@ -281,7 +281,7 @@ class AudioLoop:
         if enable_wake_word:
             self.wake_word_detector = WakeWordDetector(
                 access_key=wake_word_key,
-                keywords=["hey google"]  # Can be configured
+                keywords=["jarvis"]  # Can be configured
             )
 
         # Audio recorder
@@ -809,15 +809,15 @@ class AudioLoop:
                                     if delta:
                                         # Send to frontend (Streaming)
                                         if self.on_transcription:
-                                             self.on_transcription({"sender": "ADA", "text": delta})
-                                        
+                                             self.on_transcription({"sender": "JARVIS", "text": delta})
+
                                         # Buffer for Logging
-                                        if self.chat_buffer["sender"] != "ADA":
+                                        if self.chat_buffer["sender"] != "JARVIS":
                                             # Flush previous
                                             if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
                                                 self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
                                             # Start new
-                                            self.chat_buffer = {"sender": "ADA", "text": delta}
+                                            self.chat_buffer = {"sender": "JARVIS", "text": delta}
                                         else:
                                             # Append
                                             self.chat_buffer["text"] += delta

@@ -194,7 +194,7 @@ const SettingsWindow = ({
 
             {/* Voice Selection */}
             <div className="mb-4">
-                <h3 className="text-cyan-400 font-bold mb-2 text-xs uppercase tracking-wider opacity-80">Ada Voice</h3>
+                <h3 className="text-cyan-400 font-bold mb-2 text-xs uppercase tracking-wider opacity-80">Jarvis Voice</h3>
                 <select
                     value={selectedVoice}
                     onChange={handleVoiceChange}
