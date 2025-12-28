@@ -71,7 +71,13 @@ DEFAULT_SETTINGS = {
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}
-    "camera_flipped": False # Invert cursor horizontal direction
+    "camera_flipped": False, # Invert cursor horizontal direction
+    # Enhanced Audio Settings
+    "voice_name": "Kore",  # Selected Gemini voice
+    "enable_noise_gate": True,  # Noise suppression
+    "enable_wake_word": False,  # Wake word detection (requires API key)
+    "wake_word_key": None,  # Porcupine API key
+    "enable_recording": False,  # Audio recording capability
 }
 
 SETTINGS = DEFAULT_SETTINGS.copy()
@@ -268,11 +274,15 @@ async def start_audio(sid, data=None):
         print(f"Sending Error to frontend: {msg}")
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
-    # Initialize ADA
+    # Callback to send Audio Metrics to frontend
+    def on_audio_metrics(metrics):
+        asyncio.create_task(sio.emit('audio_metrics', metrics))
+
+    # Initialize ADA with enhanced features
     try:
         print(f"Initializing AudioLoop with device_index={device_index}")
         audio_loop = ada.AudioLoop(
-            video_mode="none", 
+            video_mode="none",
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
             on_web_data=on_web_data,
@@ -283,10 +293,18 @@ async def start_audio(sid, data=None):
             on_project_update=on_project_update,
             on_device_update=on_device_update,
             on_error=on_error,
+            on_audio_metrics=on_audio_metrics,
 
             input_device_index=device_index,
             input_device_name=device_name,
-            kasa_agent=kasa_agent
+            kasa_agent=kasa_agent,
+
+            # Enhanced audio settings
+            voice_name=SETTINGS.get("voice_name", "Kore"),
+            enable_noise_gate=SETTINGS.get("enable_noise_gate", True),
+            enable_wake_word=SETTINGS.get("enable_wake_word", False),
+            wake_word_key=SETTINGS.get("wake_word_key"),
+            enable_recording=SETTINGS.get("enable_recording", False)
         )
         print("AudioLoop initialized successfully.")
 
@@ -972,11 +990,60 @@ async def update_tool_permissions(sid, data):
     print(f"Updating permissions (legacy event): {data}")
     SETTINGS["tool_permissions"].update(data)
     save_settings()
-    
+
     if audio_loop:
         audio_loop.update_permissions(SETTINGS["tool_permissions"])
     # Broadcast update to all
     await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
+
+@sio.event
+async def start_recording(sid):
+    """Start recording audio conversation"""
+    if audio_loop:
+        success = audio_loop.start_recording()
+        if success:
+            await sio.emit('recording_status', {'recording': True})
+            await sio.emit('status', {'msg': 'Recording started'})
+        else:
+            await sio.emit('error', {'msg': 'Recording not available'})
+    else:
+        await sio.emit('error', {'msg': 'Audio system not active'})
+
+@sio.event
+async def stop_recording(sid):
+    """Stop recording and get file path"""
+    if audio_loop:
+        filepath = audio_loop.stop_recording()
+        if filepath:
+            await sio.emit('recording_status', {'recording': False, 'filepath': filepath})
+            await sio.emit('status', {'msg': f'Recording saved: {filepath}'})
+        else:
+            await sio.emit('error', {'msg': 'No active recording'})
+    else:
+        await sio.emit('error', {'msg': 'Audio system not active'})
+
+@sio.event
+async def get_recording_status(sid):
+    """Get current recording status"""
+    if audio_loop:
+        is_recording = audio_loop.is_recording()
+        await sio.emit('recording_status', {'recording': is_recording})
+    else:
+        await sio.emit('recording_status', {'recording': False})
+
+@sio.event
+async def get_audio_stats(sid):
+    """Get audio processing statistics"""
+    if audio_loop:
+        stats = audio_loop.get_audio_stats()
+        await sio.emit('audio_stats', stats)
+    else:
+        await sio.emit('audio_stats', {})
+
+@sio.event
+async def get_available_voices(sid):
+    """Get list of available Gemini voices"""
+    await sio.emit('available_voices', ada.AVAILABLE_VOICES)
 
 if __name__ == "__main__":
     uvicorn.run(

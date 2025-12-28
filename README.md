@@ -25,6 +25,21 @@ ADA V2 is a sophisticated AI assistant designed for multimodal interaction. It c
 | **🏠 Smart Home** | Voice control for TP-Link Kasa devices | `python-kasa` |
 | **📁 Project Memory** | Persistent context across sessions | File-based JSON storage |
 
+### 🎙️ Enhanced Voice Features (NEW!)
+
+ADA V2 now includes professional-grade audio processing:
+
+| Feature | Description |
+|---------|-------------|
+| **🎭 Multiple Voices** | Choose from 5 Gemini voices (Puck, Charon, Kore, Fenrir, Aoede) |
+| **🔇 Noise Suppression** | WebRTC VAD + noise gate for crystal-clear audio |
+| **👂 Wake Word** | Hands-free activation with "Hey Google" (optional, requires Porcupine API key) |
+| **⏺️ Recording** | Save conversations to WAV files |
+| **🎚️ Mic Testing** | Test microphone with real-time quality metrics |
+| **📊 Audio Metrics** | Monitor RMS, peak, latency, and clipping in real-time |
+
+> 📖 **See [VOICE_FEATURES.md](VOICE_FEATURES.md) for complete documentation**
+
 ### 🖐️ Gesture Control Details
 
 ADA's "Minority Report" interface uses your webcam to detect hand gestures:

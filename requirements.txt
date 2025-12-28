@@ -22,3 +22,8 @@ python-dotenv
 mediapipe
 # CAD Generation
 build123d
+# Enhanced Audio Processing
+webrtcvad>=2.0.10
+pvporcupine>=3.0.0
+numpy>=1.24.0
+scipy>=1.10.0
