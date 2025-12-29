@@ -276,7 +276,12 @@ async def start_audio(sid, data=None):
 
     # Callback to send Audio Metrics to frontend
     def on_audio_metrics(metrics):
-        asyncio.create_task(sio.emit('audio_metrics', metrics))
+        # Convert numpy float32 to Python float for JSON serialization
+        serializable_metrics = {
+            key: float(value) if hasattr(value, 'item') else value
+            for key, value in metrics.items()
+        }
+        asyncio.create_task(sio.emit('audio_metrics', serializable_metrics))
 
     # Initialize ADA with enhanced features
     try:
