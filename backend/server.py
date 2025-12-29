@@ -71,7 +71,13 @@ DEFAULT_SETTINGS = {
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}
-    "camera_flipped": False # Invert cursor horizontal direction
+    "camera_flipped": False, # Invert cursor horizontal direction
+    # Enhanced Audio Settings
+    "voice_name": "Fenrir",  # Selected Gemini voice (male, deep)
+    "enable_noise_gate": False,  # Noise suppression (disabled by default - can cause audio issues)
+    "enable_wake_word": False,  # Wake word detection (requires API key)
+    "wake_word_key": None,  # Porcupine API key
+    "enable_recording": False,  # Audio recording capability
 }
 
 SETTINGS = DEFAULT_SETTINGS.copy()
@@ -126,12 +132,12 @@ async def startup_event():
 
 @app.get("/status")
 async def status():
-    return {"status": "running", "service": "A.D.A Backend"}
+    return {"status": "running", "service": "JARVIS Backend"}
 
 @sio.event
 async def connect(sid, environ):
     print(f"Client connected: {sid}")
-    await sio.emit('status', {'msg': 'Connected to A.D.A Backend'}, room=sid)
+    await sio.emit('status', {'msg': 'Connected to JARVIS Backend'}, room=sid)
 
     global authenticator
     
@@ -203,7 +209,7 @@ async def start_audio(sid, data=None):
              loop_task = None
         else:
              print("Audio loop already running. Re-connecting client to session.")
-             await sio.emit('status', {'msg': 'A.D.A Already Running'})
+             await sio.emit('status', {'msg': 'JARVIS Already Running'})
              return
 
 
@@ -268,11 +274,20 @@ async def start_audio(sid, data=None):
         print(f"Sending Error to frontend: {msg}")
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
-    # Initialize ADA
+    # Callback to send Audio Metrics to frontend
+    def on_audio_metrics(metrics):
+        # Convert numpy float32 to Python float for JSON serialization
+        serializable_metrics = {
+            key: float(value) if hasattr(value, 'item') else value
+            for key, value in metrics.items()
+        }
+        asyncio.create_task(sio.emit('audio_metrics', serializable_metrics))
+
+    # Initialize ADA with enhanced features
     try:
         print(f"Initializing AudioLoop with device_index={device_index}")
         audio_loop = ada.AudioLoop(
-            video_mode="none", 
+            video_mode="none",
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
             on_web_data=on_web_data,
@@ -283,10 +298,18 @@ async def start_audio(sid, data=None):
             on_project_update=on_project_update,
             on_device_update=on_device_update,
             on_error=on_error,
+            on_audio_metrics=on_audio_metrics,
 
             input_device_index=device_index,
             input_device_name=device_name,
-            kasa_agent=kasa_agent
+            kasa_agent=kasa_agent,
+
+            # Enhanced audio settings
+            voice_name=SETTINGS.get("voice_name", "Kore"),
+            enable_noise_gate=SETTINGS.get("enable_noise_gate", True),
+            enable_wake_word=SETTINGS.get("enable_wake_word", False),
+            wake_word_key=SETTINGS.get("wake_word_key"),
+            enable_recording=SETTINGS.get("enable_recording", False)
         )
         print("AudioLoop initialized successfully.")
 
@@ -312,9 +335,9 @@ async def start_audio(sid, data=None):
                 # You could emit 'error' here if you have context
         
         loop_task.add_done_callback(handle_loop_exit)
-        
-        print("Emitting 'A.D.A Started'")
-        await sio.emit('status', {'msg': 'A.D.A Started'})
+
+        print("Emitting 'JARVIS Started'")
+        await sio.emit('status', {'msg': 'JARVIS Started'})
 
         # Load saved printers
         saved_printers = SETTINGS.get("printers", [])
@@ -376,10 +399,10 @@ async def monitor_printers_loop():
 async def stop_audio(sid):
     global audio_loop
     if audio_loop:
-        audio_loop.stop() 
+        audio_loop.stop()
         print("Stopping Audio Loop")
         audio_loop = None
-        await sio.emit('status', {'msg': 'A.D.A Stopped'})
+        await sio.emit('status', {'msg': 'JARVIS Stopped'})
 
 @sio.event
 async def pause_audio(sid):
@@ -717,7 +740,7 @@ async def discover_printers(sid):
             return
         else:
             await sio.emit('printer_list', [])
-            await sio.emit('status', {'msg': "Connect to A.D.A to enable printer discovery"})
+            await sio.emit('status', {'msg': "Connect to JARVIS to enable printer discovery"})
             return
         
     try:
@@ -972,11 +995,60 @@ async def update_tool_permissions(sid, data):
     print(f"Updating permissions (legacy event): {data}")
     SETTINGS["tool_permissions"].update(data)
     save_settings()
-    
+
     if audio_loop:
         audio_loop.update_permissions(SETTINGS["tool_permissions"])
     # Broadcast update to all
     await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
+
+@sio.event
+async def start_recording(sid):
+    """Start recording audio conversation"""
+    if audio_loop:
+        success = audio_loop.start_recording()
+        if success:
+            await sio.emit('recording_status', {'recording': True})
+            await sio.emit('status', {'msg': 'Recording started'})
+        else:
+            await sio.emit('error', {'msg': 'Recording not available'})
+    else:
+        await sio.emit('error', {'msg': 'Audio system not active'})
+
+@sio.event
+async def stop_recording(sid):
+    """Stop recording and get file path"""
+    if audio_loop:
+        filepath = audio_loop.stop_recording()
+        if filepath:
+            await sio.emit('recording_status', {'recording': False, 'filepath': filepath})
+            await sio.emit('status', {'msg': f'Recording saved: {filepath}'})
+        else:
+            await sio.emit('error', {'msg': 'No active recording'})
+    else:
+        await sio.emit('error', {'msg': 'Audio system not active'})
+
+@sio.event
+async def get_recording_status(sid):
+    """Get current recording status"""
+    if audio_loop:
+        is_recording = audio_loop.is_recording()
+        await sio.emit('recording_status', {'recording': is_recording})
+    else:
+        await sio.emit('recording_status', {'recording': False})
+
+@sio.event
+async def get_audio_stats(sid):
+    """Get audio processing statistics"""
+    if audio_loop:
+        stats = audio_loop.get_audio_stats()
+        await sio.emit('audio_stats', stats)
+    else:
+        await sio.emit('audio_stats', {})
+
+@sio.event
+async def get_available_voices(sid):
+    """Get list of available Gemini voices"""
+    await sio.emit('available_voices', ada.AVAILABLE_VOICES)
 
 if __name__ == "__main__":
     uvicorn.run(

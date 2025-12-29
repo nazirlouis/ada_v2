@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Mic, Square, Circle, Activity } from 'lucide-react';
 
 const TOOLS = [
     { id: 'generate_cad', label: 'Generate CAD' },
@@ -39,9 +39,21 @@ const SettingsWindow = ({
     const [permissions, setPermissions] = useState({});
     const [faceAuthEnabled, setFaceAuthEnabled] = useState(false);
 
+    // Enhanced audio settings
+    const [availableVoices, setAvailableVoices] = useState(['Kore']);
+    const [selectedVoice, setSelectedVoice] = useState('Kore');
+    const [noiseGateEnabled, setNoiseGateEnabled] = useState(true);
+    const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
+    const [recordingEnabled, setRecordingEnabled] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [audioMetrics, setAudioMetrics] = useState(null);
+    const [isTesting, setIsTesting] = useState(false);
+
     useEffect(() => {
-        // Request initial permissions
+        // Request initial data
         socket.emit('get_settings');
+        socket.emit('get_available_voices');
+        socket.emit('get_recording_status');
 
         // Listen for updates
         const handleSettings = (settings) => {
@@ -52,15 +64,37 @@ const SettingsWindow = ({
                     setFaceAuthEnabled(settings.face_auth_enabled);
                     localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
                 }
+                // Enhanced audio settings
+                if (settings.voice_name) setSelectedVoice(settings.voice_name);
+                if (typeof settings.enable_noise_gate !== 'undefined') setNoiseGateEnabled(settings.enable_noise_gate);
+                if (typeof settings.enable_wake_word !== 'undefined') setWakeWordEnabled(settings.enable_wake_word);
+                if (typeof settings.enable_recording !== 'undefined') setRecordingEnabled(settings.enable_recording);
             }
         };
 
+        const handleAvailableVoices = (voices) => {
+            console.log("Available voices:", voices);
+            setAvailableVoices(voices);
+        };
+
+        const handleRecordingStatus = (status) => {
+            setIsRecording(status.recording);
+        };
+
+        const handleAudioMetrics = (metrics) => {
+            setAudioMetrics(metrics);
+        };
+
         socket.on('settings', handleSettings);
-        // Also listen for legacy tool_permissions if needed, but 'settings' covers it
-        // socket.on('tool_permissions', handlePermissions); 
+        socket.on('available_voices', handleAvailableVoices);
+        socket.on('recording_status', handleRecordingStatus);
+        socket.on('audio_metrics', handleAudioMetrics);
 
         return () => {
             socket.off('settings', handleSettings);
+            socket.off('available_voices', handleAvailableVoices);
+            socket.off('recording_status', handleRecordingStatus);
+            socket.off('audio_metrics', handleAudioMetrics);
         };
     }, [socket]);
 
@@ -88,6 +122,51 @@ const SettingsWindow = ({
         socket.emit('update_settings', { camera_flipped: newVal });
     };
 
+    const handleVoiceChange = (e) => {
+        const newVoice = e.target.value;
+        setSelectedVoice(newVoice);
+        socket.emit('update_settings', { voice_name: newVoice });
+    };
+
+    const toggleNoiseGate = () => {
+        const newVal = !noiseGateEnabled;
+        setNoiseGateEnabled(newVal);
+        socket.emit('update_settings', { enable_noise_gate: newVal });
+    };
+
+    const toggleWakeWord = () => {
+        const newVal = !wakeWordEnabled;
+        setWakeWordEnabled(newVal);
+        socket.emit('update_settings', { enable_wake_word: newVal });
+    };
+
+    const toggleRecordingEnabled = () => {
+        const newVal = !recordingEnabled;
+        setRecordingEnabled(newVal);
+        socket.emit('update_settings', { enable_recording: newVal });
+    };
+
+    const toggleRecording = () => {
+        if (isRecording) {
+            socket.emit('stop_recording');
+        } else {
+            socket.emit('start_recording');
+        }
+    };
+
+    const testMicrophone = () => {
+        setIsTesting(true);
+        // Request audio stats for 3 seconds
+        const interval = setInterval(() => {
+            socket.emit('get_audio_stats');
+        }, 100);
+
+        setTimeout(() => {
+            clearInterval(interval);
+            setIsTesting(false);
+        }, 3000);
+    };
+
     return (
         <div className="absolute top-20 right-10 bg-black/90 border border-cyan-500/50 p-4 rounded-lg z-50 w-80 backdrop-blur-xl shadow-[0_0_30px_rgba(6,182,212,0.2)]">
             <div className="flex justify-between items-center mb-4 border-b border-cyan-900/50 pb-2">
@@ -113,9 +192,40 @@ const SettingsWindow = ({
                 </div>
             </div>
 
+            {/* Voice Selection */}
+            <div className="mb-4">
+                <h3 className="text-cyan-400 font-bold mb-2 text-xs uppercase tracking-wider opacity-80">Jarvis Voice</h3>
+                <select
+                    value={selectedVoice}
+                    onChange={handleVoiceChange}
+                    className="w-full bg-gray-900 border border-cyan-800 rounded p-2 text-xs text-cyan-100 focus:border-cyan-400 outline-none"
+                >
+                    {availableVoices.map((voice) => (
+                        <option key={voice} value={voice}>
+                            {voice}
+                        </option>
+                    ))}
+                </select>
+                <p className="text-[10px] text-cyan-500/60 mt-1">Restart audio session to apply</p>
+            </div>
+
             {/* Microphone Section */}
             <div className="mb-4">
-                <h3 className="text-cyan-400 font-bold mb-2 text-xs uppercase tracking-wider opacity-80">Microphone</h3>
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-cyan-400 font-bold text-xs uppercase tracking-wider opacity-80">Microphone</h3>
+                    <button
+                        onClick={testMicrophone}
+                        disabled={isTesting}
+                        className={`text-[10px] px-2 py-1 rounded ${
+                            isTesting
+                                ? 'bg-cyan-700 text-cyan-300'
+                                : 'bg-cyan-900 text-cyan-400 hover:bg-cyan-800'
+                        } transition-colors flex items-center gap-1`}
+                    >
+                        {isTesting ? <Activity size={10} className="animate-pulse" /> : <Mic size={10} />}
+                        {isTesting ? 'Testing...' : 'Test'}
+                    </button>
+                </div>
                 <select
                     value={selectedMicId}
                     onChange={(e) => setSelectedMicId(e.target.value)}
@@ -127,6 +237,26 @@ const SettingsWindow = ({
                         </option>
                     ))}
                 </select>
+                {audioMetrics && isTesting && (
+                    <div className="mt-2 p-2 bg-gray-900/70 rounded text-[10px]">
+                        <div className="flex justify-between">
+                            <span className="text-cyan-400">Level:</span>
+                            <span className="text-cyan-100">{(audioMetrics.rms * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-cyan-400">Peak:</span>
+                            <span className="text-cyan-100">{(audioMetrics.peak * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className={audioMetrics.clipping ? 'text-red-400' : 'text-cyan-400'}>
+                                Clipping:
+                            </span>
+                            <span className={audioMetrics.clipping ? 'text-red-300' : 'text-green-300'}>
+                                {audioMetrics.clipping ? 'YES' : 'NO'}
+                            </span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Speaker Section */}
@@ -191,6 +321,79 @@ const SettingsWindow = ({
                             className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${isCameraFlipped ? 'translate-x-4' : 'translate-x-0'}`}
                         />
                     </button>
+                </div>
+            </div>
+
+            {/* Audio Enhancement */}
+            <div className="mb-6">
+                <h3 className="text-cyan-400 font-bold mb-3 text-xs uppercase tracking-wider opacity-80">Audio Enhancement</h3>
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs bg-gray-900/50 p-2 rounded border border-cyan-900/30">
+                        <span className="text-cyan-100/80">Noise Suppression</span>
+                        <button
+                            onClick={toggleNoiseGate}
+                            className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${noiseGateEnabled ? 'bg-cyan-500/80' : 'bg-gray-700'}`}
+                        >
+                            <div
+                                className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${noiseGateEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                            />
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between text-xs bg-gray-900/50 p-2 rounded border border-cyan-900/30">
+                        <span className="text-cyan-100/80">Wake Word Detection</span>
+                        <button
+                            onClick={toggleWakeWord}
+                            className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${wakeWordEnabled ? 'bg-cyan-500/80' : 'bg-gray-700'}`}
+                        >
+                            <div
+                                className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${wakeWordEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                            />
+                        </button>
+                    </div>
+                    {wakeWordEnabled && (
+                        <p className="text-[10px] text-yellow-500/80">Requires Porcupine API key in settings.json</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Recording Controls */}
+            <div className="mb-6">
+                <h3 className="text-cyan-400 font-bold mb-3 text-xs uppercase tracking-wider opacity-80">Recording</h3>
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs bg-gray-900/50 p-2 rounded border border-cyan-900/30">
+                        <span className="text-cyan-100/80">Enable Recording</span>
+                        <button
+                            onClick={toggleRecordingEnabled}
+                            className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${recordingEnabled ? 'bg-cyan-500/80' : 'bg-gray-700'}`}
+                        >
+                            <div
+                                className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${recordingEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                            />
+                        </button>
+                    </div>
+                    {recordingEnabled && (
+                        <button
+                            onClick={toggleRecording}
+                            disabled={!recordingEnabled}
+                            className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded transition-colors ${
+                                isRecording
+                                    ? 'bg-red-900/80 text-red-200 hover:bg-red-800/80'
+                                    : 'bg-cyan-900 text-cyan-400 hover:bg-cyan-800'
+                            }`}
+                        >
+                            {isRecording ? (
+                                <>
+                                    <Square size={12} className="fill-current" />
+                                    <span className="text-xs">Stop Recording</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Circle size={12} className="fill-current" />
+                                    <span className="text-xs">Start Recording</span>
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
 
