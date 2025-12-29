@@ -4,6 +4,7 @@ import io
 import os
 import sys
 import traceback
+from typing import Optional
 from dotenv import load_dotenv
 import cv2
 import pyaudio
@@ -16,6 +17,14 @@ import time
 
 from google import genai
 from google.genai import types
+
+# Enhanced audio processing
+from audio_processor import (
+    EnhancedAudioProcessor,
+    WakeWordDetector,
+    AudioRecorder,
+    AudioMetrics
+)
 
 if sys.version_info < (3, 11, 0):
     import taskgroup, exceptiongroup
@@ -32,6 +41,15 @@ CHUNK_SIZE = 1024
 
 MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 DEFAULT_MODE = "camera"
+
+# Available Gemini voices
+AVAILABLE_VOICES = [
+    "Puck",    # Friendly, upbeat voice
+    "Charon",  # Calm, measured voice
+    "Kore",    # Current default - warm, conversational
+    "Fenrir",  # Deep, authoritative voice
+    "Aoede",   # Melodic, expressive voice
+]
 
 load_dotenv()
 client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
@@ -182,26 +200,30 @@ iterate_cad_tool = {
 
 tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool] + tools_list[0]['function_declarations'][1:]}]
 
-# --- CONFIG UPDATE: Enabled Transcription ---
-config = types.LiveConnectConfig(
-    response_modalities=["AUDIO"],
-    # We switch these from [] to {} to enable them with default settings
-    output_audio_transcription={}, 
-    input_audio_transcription={},
-    system_instruction="Your name is Ada, which stands for Advanced Design Assistant. "
-        "You have a witty and charming personality. "
-        "Your creator is Naz, and you address him as 'Sir'. "
-        "When answering, respond using complete and concise sentences to keep a quick pacing and keep the conversation flowing. "
-        "You have a fun personality.",
-    tools=tools,
-    speech_config=types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name="Kore"
+# --- CONFIG BUILDER FUNCTION ---
+def build_config(voice_name: str = "Fenrir"):
+    """Build a LiveConnectConfig with specified voice"""
+    return types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        output_audio_transcription={},
+        input_audio_transcription={},
+        system_instruction="Your name is Jarvis, which stands for Just A Rather Very Intelligent System. "
+            "You have a sophisticated and professional personality with a touch of dry wit. "
+            "Your creator is Naz, and you address him as 'Sir'. "
+            "When answering, respond using complete and concise sentences to keep a quick pacing and keep the conversation flowing. "
+            "You have a distinguished and helpful demeanor, similar to a trusted butler or advisor.",
+        tools=tools,
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name=voice_name
+                )
             )
         )
     )
-)
+
+# Default config
+config = build_config()
 
 pya = pyaudio.PyAudio()
 
@@ -211,29 +233,31 @@ from kasa_agent import KasaAgent
 from printer_agent import PrinterAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, on_audio_metrics=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None, voice_name="Kore", enable_noise_gate=True, enable_wake_word=False, wake_word_key=None, enable_recording=False):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
         self.on_cad_data = on_cad_data
         self.on_web_data = on_web_data
         self.on_transcription = on_transcription
-        self.on_tool_confirmation = on_tool_confirmation 
+        self.on_tool_confirmation = on_tool_confirmation
         self.on_cad_status = on_cad_status
         self.on_cad_thought = on_cad_thought
         self.on_project_update = on_project_update
         self.on_device_update = on_device_update
         self.on_error = on_error
+        self.on_audio_metrics = on_audio_metrics
         self.input_device_index = input_device_index
         self.input_device_name = input_device_name
         self.output_device_index = output_device_index
+        self.voice_name = voice_name
 
         self.audio_in_queue = None
         self.out_queue = None
         self.paused = False
 
         self.chat_buffer = {"sender": None, "text": ""} # For aggregating chunks
-        
+
         # Track last transcription text to calculate deltas (Gemini sends cumulative text)
         self._last_input_transcription = ""
         self._last_output_transcription = ""
@@ -243,6 +267,36 @@ class AudioLoop:
         self.paused = False
 
         self.session = None
+
+        # Enhanced Audio Processing
+        self.audio_processor = EnhancedAudioProcessor(
+            sample_rate=SEND_SAMPLE_RATE,
+            enable_noise_gate=enable_noise_gate,
+            vad_aggressiveness=1  # Low aggressiveness to reduce false positives from echo
+        )
+        print(f"[ADA] Enhanced audio processor initialized (noise_gate={enable_noise_gate})")
+
+        # Wake word detection
+        self.wake_word_detector = None
+        if enable_wake_word:
+            self.wake_word_detector = WakeWordDetector(
+                access_key=wake_word_key,
+                keywords=["jarvis"]  # Can be configured
+            )
+
+        # Audio recorder
+        self.audio_recorder = None
+        if enable_recording:
+            self.audio_recorder = AudioRecorder(
+                sample_rate=SEND_SAMPLE_RATE,
+                output_dir="recordings"
+            )
+            print("[ADA] Audio recorder initialized")
+
+        # Build config with selected voice
+        global config
+        config = build_config(voice_name=voice_name)
+        print(f"[ADA] Voice set to: {voice_name}")
         
         # Create CadAgent with thought callback
         def handle_cad_thought(thought_text):
@@ -271,6 +325,9 @@ class AudioLoop:
         # VAD State
         self._is_speaking = False
         self._silence_start_time = None
+        # AI speaking state (to prevent self-interruption)
+        self._ai_is_speaking = False
+        self._last_ai_audio_time = 0
         
         # Initialize ProjectManager
         from project_manager import ProjectManager
@@ -306,6 +363,36 @@ class AudioLoop:
 
     def stop(self):
         self.stop_event.set()
+        # Cleanup wake word detector
+        if self.wake_word_detector:
+            self.wake_word_detector.cleanup()
+        # Stop recording if active
+        if self.audio_recorder and self.audio_recorder.is_recording():
+            self.stop_recording()
+
+    def start_recording(self):
+        """Start recording audio conversation"""
+        if self.audio_recorder:
+            self.audio_recorder.start()
+            print("[ADA] Recording started")
+            return True
+        return False
+
+    def stop_recording(self) -> Optional[str]:
+        """Stop recording and return file path"""
+        if self.audio_recorder:
+            filepath = self.audio_recorder.stop()
+            print(f"[ADA] Recording stopped: {filepath}")
+            return filepath
+        return None
+
+    def is_recording(self) -> bool:
+        """Check if currently recording"""
+        return self.audio_recorder and self.audio_recorder.is_recording()
+
+    def get_audio_stats(self) -> dict:
+        """Get audio processing statistics"""
+        return self.audio_processor.get_statistics()
         
     def resolve_tool_confirmation(self, request_id, confirmed):
         print(f"[ADA DEBUG] [RESOLVE] resolve_tool_confirmation called. ID: {request_id}, Confirmed: {confirmed}")
@@ -321,6 +408,14 @@ class AudioLoop:
 
     def clear_audio_queue(self):
         """Clears the queue of pending audio chunks to stop playback immediately."""
+        # Cooldown to prevent rapid clearing which can cause choppy audio
+        current_time = time.time()
+        if hasattr(self, '_last_queue_clear_time'):
+            if current_time - self._last_queue_clear_time < 1.0:  # 1 second cooldown
+                return  # Skip clearing if we just cleared recently
+
+        self._last_queue_clear_time = current_time
+
         try:
             count = 0
             while not self.audio_in_queue.empty():
@@ -421,43 +516,67 @@ class AudioLoop:
 
             try:
                 data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-                
-                # 1. Send Audio
-                if self.out_queue:
-                    await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
-                
-                # 2. VAD Logic for Video
-                # rms = audioop.rms(data, 2)
-                # Replacement for audioop.rms(data, 2)
-                count = len(data) // 2
-                if count > 0:
-                    shorts = struct.unpack(f"<{count}h", data)
-                    sum_squares = sum(s**2 for s in shorts)
-                    rms = int(math.sqrt(sum_squares / count))
+
+                # 1. Preprocess audio (noise gate)
+                processed_data = self.audio_processor.preprocess_audio(data)
+
+                # 2. Enhanced VAD with webrtcvad
+                is_speech, vad_confidence = self.audio_processor.detect_speech(processed_data)
+
+                # 3. Calculate audio metrics periodically (every 10 frames to reduce overhead)
+                if hasattr(self, '_metrics_counter'):
+                    self._metrics_counter += 1
                 else:
-                    rms = 0
-                
-                if rms > VAD_THRESHOLD:
+                    self._metrics_counter = 0
+
+                if self._metrics_counter % 10 == 0 and self.on_audio_metrics:
+                    metrics = self.audio_processor.calculate_metrics(processed_data)
+                    self.on_audio_metrics({
+                        'rms': metrics.rms_level,
+                        'peak': metrics.peak_level,
+                        'latency_ms': metrics.latency_ms,
+                        'vad_confidence': vad_confidence,
+                        'clipping': metrics.clipping_detected,
+                        'is_speech': is_speech
+                    })
+
+                # 4. Send Audio (use processed data)
+                if self.out_queue:
+                    await self.out_queue.put({"data": processed_data, "mime_type": "audio/pcm"})
+
+                # 5. Record audio if enabled
+                if self.audio_recorder and self.audio_recorder.is_recording():
+                    self.audio_recorder.add_frame(processed_data)
+
+                # 6. Wake word detection
+                if self.wake_word_detector and self.wake_word_detector.enabled:
+                    wake_detected = self.wake_word_detector.process(processed_data)
+                    if wake_detected:
+                        # Could trigger something here - for now just log
+                        print("[ADA] [WAKE] Wake word detected!")
+
+                # 7. VAD Logic for Video with enhanced detection
+                if is_speech:
                     # Speech Detected
                     self._silence_start_time = None
-                    
+
                     if not self._is_speaking:
                         # NEW Speech Utterance Started
                         self._is_speaking = True
-                        print(f"[ADA DEBUG] [VAD] Speech Detected (RMS: {rms}). Sending Video Frame.")
-                        
+                        print(f"[ADA DEBUG] [VAD] Speech Detected (Confidence: {vad_confidence:.2f}). Sending Video Frame.")
+
                         # Send ONE frame
                         if self._latest_image_payload and self.out_queue:
                             await self.out_queue.put(self._latest_image_payload)
                         else:
                             print(f"[ADA DEBUG] [VAD] No video frame available to send.")
-                            
+
                 else:
                     # Silence
                     if self._is_speaking:
                         if self._silence_start_time is None:
                             self._silence_start_time = time.time()
-                        
+
                         elif time.time() - self._silence_start_time > SILENCE_DURATION:
                             # Silence confirmed, reset state
                             print(f"[ADA DEBUG] [VAD] Silence detected. Resetting speech state.")
@@ -663,8 +782,12 @@ class AudioLoop:
                                     
                                     # Only send if there's new text
                                     if delta:
-                                        # User is speaking, so interrupt model playback!
-                                        self.clear_audio_queue()
+                                        # User is speaking - only interrupt if:
+                                        # 1. AI is not currently speaking, AND
+                                        # 2. The transcription is substantial (not just noise/short sounds)
+                                        # This prevents echo/feedback and brief noises from interrupting AI
+                                        if not self._ai_is_speaking and len(delta.strip()) > 2:
+                                            self.clear_audio_queue()
 
                                         # Send to frontend (Streaming)
                                         if self.on_transcription:
@@ -696,15 +819,15 @@ class AudioLoop:
                                     if delta:
                                         # Send to frontend (Streaming)
                                         if self.on_transcription:
-                                             self.on_transcription({"sender": "ADA", "text": delta})
-                                        
+                                             self.on_transcription({"sender": "JARVIS", "text": delta})
+
                                         # Buffer for Logging
-                                        if self.chat_buffer["sender"] != "ADA":
+                                        if self.chat_buffer["sender"] != "JARVIS":
                                             # Flush previous
                                             if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
                                                 self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
                                             # Start new
-                                            self.chat_buffer = {"sender": "ADA", "text": delta}
+                                            self.chat_buffer = {"sender": "JARVIS", "text": delta}
                                         else:
                                             # Append
                                             self.chat_buffer["text"] += delta
@@ -1131,12 +1254,52 @@ class AudioLoop:
             rate=RECEIVE_SAMPLE_RATE,
             output=True,
             output_device_index=self.output_device_index,
+            frames_per_buffer=4096,  # Larger buffer to prevent underruns
         )
+
+        # Buffer settings for smooth playback
+        MIN_BUFFER_CHUNKS = 3  # Wait for at least 3 chunks before starting playback
+        audio_buffer = []
+        playback_started = False
+
         while True:
             bytestream = await self.audio_in_queue.get()
+
+            # Mark that AI is speaking and update timestamp
+            self._ai_is_speaking = True
+            self._last_ai_audio_time = time.time()
+
             if self.on_audio_data:
                 self.on_audio_data(bytestream)
-            await asyncio.to_thread(stream.write, bytestream)
+
+            # Buffer initial chunks to prevent choppy start
+            if not playback_started:
+                audio_buffer.append(bytestream)
+                if len(audio_buffer) >= MIN_BUFFER_CHUNKS:
+                    # Play all buffered chunks
+                    for chunk in audio_buffer:
+                        await asyncio.to_thread(stream.write, chunk)
+                    audio_buffer = []
+                    playback_started = True
+            else:
+                # Play audio without any delays - critical for smooth playback!
+                await asyncio.to_thread(stream.write, bytestream)
+
+            # Reset playback state when queue is empty and AI stopped
+            if self.audio_in_queue.empty() and not self._ai_is_speaking:
+                playback_started = False
+                audio_buffer = []
+
+    async def monitor_ai_speaking_state(self):
+        """Background task to reset AI speaking state after silence"""
+        while True:
+            await asyncio.sleep(0.1)  # Check every 100ms
+            if self._ai_is_speaking:
+                # If no audio received for 1.5 seconds, consider AI stopped speaking
+                # Using longer timeout to account for natural speech pauses
+                if time.time() - self._last_ai_audio_time > 1.5:
+                    self._ai_is_speaking = False
+                    print("[ADA DEBUG] AI stopped speaking (1.5s silence)")
 
     async def get_frames(self):
         cap = await asyncio.to_thread(cv2.VideoCapture, 0, cv2.CAP_AVFOUNDATION)
@@ -1197,6 +1360,7 @@ class AudioLoop:
 
                     tg.create_task(self.receive_audio())
                     tg.create_task(self.play_audio())
+                    tg.create_task(self.monitor_ai_speaking_state())  # Monitor AI speech state
 
                     # Handle Startup vs Reconnect Logic
                     if not is_reconnect:
